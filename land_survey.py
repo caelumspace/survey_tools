@@ -8,6 +8,8 @@ import csv
 import json
 import math
 import argparse
+import xml.etree.ElementTree as ET
+from fastkml import kml
 
 # Function to convert lat/lon to UTM
 def latlon_to_utm(lat, lon):
@@ -86,17 +88,44 @@ def create_sample_input(filename="survey_points.csv"):
         writer.writerows(sample_data)
     print(f"Sample input file '{filename}' created.")
 
+# Parse GPX file
+def parse_gpx(file):
+    tree = ET.parse(file)
+    root = tree.getroot()
+    ns = {'default': 'http://www.topografix.com/GPX/1/1'}
+    points = root.findall('.//default:trkpt', ns)
+    return [(float(p.attrib['lat']), float(p.attrib['lon'])) for p in points]
+
+# Parse KML file
+def parse_kml(file):
+    with open(file, 'rt', encoding='utf-8') as f:
+        doc = f.read()
+    k = kml.KML()
+    k.from_string(doc)
+    features = list(k.features())
+    placemarks = list(features[0].features())
+    coords = []
+    for pm in placemarks:
+        if hasattr(pm.geometry, 'coords'):
+            coords.extend([(lat, lon) for lon, lat in pm.geometry.coords])
+    return coords
+
 # Main function
 def process_survey(input_file):
     coords = []
-    with open(input_file, "r") as f:
-        if input_file.endswith(".csv"):
+    if input_file.endswith(".csv"):
+        with open(input_file, "r") as f:
             reader = csv.reader(f)
             next(reader)
             coords = [(float(row[1]), float(row[2])) for row in reader]
-        elif input_file.endswith(".json"):
+    elif input_file.endswith(".json"):
+        with open(input_file, "r") as f:
             data = json.load(f)
             coords = [(p["lat"], p["lon"]) for p in data["points"]]
+    elif input_file.endswith(".gpx"):
+        coords = parse_gpx(input_file)
+    elif input_file.endswith(".kml"):
+        coords = parse_kml(input_file)
 
     utm_coords = [latlon_to_utm(lat, lon) for lat, lon in coords]
     meets_bounds = compute_meets_bounds(utm_coords)
@@ -107,7 +136,7 @@ def process_survey(input_file):
 # Example usage
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate a land survey document from GPS points.")
-    parser.add_argument("--input", type=str, help="Input CSV or JSON file with survey points.")
+    parser.add_argument("--input", type=str, help="Input CSV, JSON, GPX or KML file with survey points.")
     parser.add_argument("--sample", action="store_true", help="Create a sample survey_points.csv file and run it.")
     args = parser.parse_args()
 
